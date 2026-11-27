@@ -1,0 +1,40 @@
+name: Installer downloads
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 */6 * * *'
+  release:
+    types: [published]
+  push:
+    branches: [main]
+    paths: ['.github/workflows/installer-downloads.yml']
+permissions:
+  contents: write
+concurrency:
+  group: installer-download-stats
+  cancel-in-progress: false
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: Save installer download counts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if git ls-remote --exit-code --heads origin refs/heads/download-stats > /dev/null; then
+            git fetch --depth=1 origin refs/heads/download-stats
+            git switch -c download-stats FETCH_HEAD
+          else
+            git switch --orphan download-stats
+          fi
+          gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" | jq -s '{updated: (now | todateiso8601), versions: [ .[][] | select(.draft == false) | {version: .tag_name, published: .published_at, downloads: ([.assets[] | select(.name == "DesktopPet-macOS-arm64.zip") | .download_count] | add // 0)} ] | sort_by(.published) | reverse}' > downloads.json
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add downloads.json
+          git commit -m 'Refresh installer download counts'
+          git push origin HEAD:refs/heads/download-stats
